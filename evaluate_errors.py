@@ -40,10 +40,43 @@ class ErrorAnalyzer:
         unmatched_det = set(range(len(det_boxes))) - used_dets
         return gt_to_det, unmatched_gt, unmatched_det
 
-    def compute_errors(self, gt_box, det_box):
-        """Compute distal, perpendicular, and height errors between GT and detection."""
+    def compute_errors(self, gt_box, det_box, signed=False):
+        """Compute position errors between GT and detection (legacy 3-value version).
+        
+        Args:
+            gt_box: Ground truth bounding box [x, y, z, w, l, h, yaw]
+            det_box: Detection bounding box [x, y, z, w, l, h, yaw]
+            signed: If True, return signed errors. If False (default), return absolute errors.
+        
+        Returns:
+            distal_error: Error along the radial direction (positive = detection farther than GT)
+            perp_error: Error perpendicular to radial direction (positive = detection to the right)
+            height_error: Vertical error (positive = detection higher than GT)
+        """
+        errors = self.compute_all_errors(gt_box, det_box, signed)
+        return errors['distal'], errors['perp'], errors['height']
+    
+    def compute_all_errors(self, gt_box, det_box, signed=False):
+        """Compute all errors between GT and detection bounding boxes.
+        
+        Args:
+            gt_box: Ground truth bounding box [x, y, z, w, l, h, yaw]
+            det_box: Detection bounding box [x, y, z, w, l, h, yaw]
+            signed: If True, return signed errors. If False (default), return absolute errors.
+        
+        Returns:
+            dict with keys:
+                distal: Error along the radial direction (towards/away from sensor)
+                perp: Error perpendicular to radial direction (left/right)
+                height: Vertical position error (z)
+                yaw: Orientation error (normalized to [-pi, pi])
+                width: Box width error
+                length: Box length error  
+                box_height: Box height error (dimension, not position)
+        """
         gt_center = gt_box[:3]
         det_center = det_box[:3]
+        
         # Vector from sensor to GT
         sensor_to_gt = gt_center.copy()
         sensor_to_gt[1] = 0  # project to ground plane
@@ -52,16 +85,60 @@ class ErrorAnalyzer:
             direction = np.array([1, 0, 0])
         else:
             direction = sensor_to_gt / norm
+        
         # Vector from GT to detection
         delta = det_center - gt_center
-        # Distal error (projection along direction) - use absolute value
-        distal_error = abs(np.dot(delta[[0, 2]], direction[[0, 2]]))
-        # Perpendicular error (in ground plane, orthogonal to direction) - use absolute value
+        
+        # Distal error (projection along direction)
+        distal_error = np.dot(delta[[0, 2]], direction[[0, 2]])
+        
+        # Perpendicular error (in ground plane, orthogonal to direction)
         perp_vec = np.array([-direction[2], 0, direction[0]])
-        perp_error = abs(np.dot(delta[[0, 2]], perp_vec[[0, 2]]))
-        # Height error - use absolute value
-        height_error = abs(delta[1])
-        return distal_error, perp_error, height_error
+        perp_error = np.dot(delta[[0, 2]], perp_vec[[0, 2]])
+        
+        # Height (z position) error
+        height_error = delta[1]
+        
+        # Orientation (yaw) error - normalize to [-pi/2, pi/2]
+        # For symmetric objects (cars, etc.), 180° rotation is equivalent
+        # since length aligns with length and width with width
+        gt_yaw = gt_box[6]
+        det_yaw = det_box[6]
+        yaw_error = det_yaw - gt_yaw
+        # First normalize to [-pi, pi]
+        yaw_error = (yaw_error + np.pi) % (2 * np.pi) - np.pi
+        # Then normalize to [-pi/2, pi/2] for 180° symmetry
+        if yaw_error > np.pi / 2:
+            yaw_error -= np.pi
+        elif yaw_error < -np.pi / 2:
+            yaw_error += np.pi
+        
+        # Dimension errors (w, l, h)
+        gt_w, gt_l, gt_h = gt_box[3], gt_box[4], gt_box[5]
+        det_w, det_l, det_h = det_box[3], det_box[4], det_box[5]
+        
+        width_error = det_w - gt_w
+        length_error = det_l - gt_l
+        box_height_error = det_h - gt_h
+        
+        if not signed:
+            distal_error = abs(distal_error)
+            perp_error = abs(perp_error)
+            height_error = abs(height_error)
+            yaw_error = abs(yaw_error)
+            width_error = abs(width_error)
+            length_error = abs(length_error)
+            box_height_error = abs(box_height_error)
+        
+        return {
+            'distal': distal_error,
+            'perp': perp_error,
+            'height': height_error,
+            'yaw': yaw_error,
+            'width': width_error,
+            'length': length_error,
+            'box_height': box_height_error
+        }
 
     def analyze_detection_errors(self, gt_results, det_results, CLASSES, iou_thresh):
         error_analysis = {

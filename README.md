@@ -143,6 +143,108 @@ python test.py --ckpt pretrained/epoch_160.pth --pc_path pointpillars/dataset/de
                --img_path pointpillars/dataset/demo_data/test/000002.png
 ```
 
+## [Error Analysis & Prediction]
+
+This repository includes tools for analyzing PointPillars detection errors and training error prediction models. These can be used for uncertainty estimation, sensor modeling, and Monte Carlo simulation.
+
+### Error Types Analyzed
+
+| Error Type | Description | Units |
+| :--- | :--- | :--- |
+| Radial (Distal) | Range error, towards/away from sensor | meters |
+| Lateral (Perpendicular) | Cross-range error, left/right in ground plane | meters |
+| Vertical (Height) | Elevation error, up/down | meters |
+| Yaw | Heading angle error (180° symmetric) | radians |
+| Width | Bounding box width error | meters |
+| Length | Bounding box length error | meters |
+| Box Height | Bounding box height error | meters |
+| Missed Rate | Detection miss probability | 0-1 |
+
+### Step 1: Analyze Errors on Validation Set
+
+First, run error analysis on the validation set to compute error statistics and match detections to ground truth:
+
+```bash
+python evaluate_errors.py --data_root /path/to/kitti --ckpt pretrained/epoch_160.pth --output_dir ./error_analysis_results
+```
+
+This outputs:
+- `error_analysis.pkl` - Raw error data for each matched detection
+- `error_summary.txt` - Summary statistics
+
+### Step 2: Train Error Prediction Models
+
+Train neural network, linear regression, and quadratic regression models to predict error magnitude as a function of distance:
+
+```bash
+python train_all_models.py --data_root /path/to/kitti --ckpt pretrained/epoch_160.pth --output_dir ./error_predictors
+```
+
+This outputs:
+- `error_predictor.pth` - Neural network model
+- `linear_models.pkl` - Linear and quadratic regression models
+- `scaler.pkl` - Feature scaler for NN input
+
+### Step 3: Evaluate Error Predictors & Generate Distribution CSV
+
+Evaluate all trained models and generate comprehensive analysis including distribution fitting:
+
+```bash
+python evaluate_error_predictors.py \
+    --data_root /path/to/kitti \
+    --ckpt pretrained/epoch_160.pth \
+    --model_dir ./error_predictors \
+    --output_dir ./evaluation_results
+```
+
+This outputs:
+- `pointpillars_distributions.csv` - **Best-fit error distributions per distance bin** (for sampling/simulation)
+- `regression_models.txt` - Linear and quadratic regression equations for all error types
+- `distribution_summary.txt` - Detailed distribution fitting analysis with AIC/KS statistics
+- `car_comparison.png`, `pedestrian_comparison.png`, `cyclist_comparison.png` - Error vs. distance plots with regression fits
+- `*_distributions.png` - Histograms of error distributions by distance bin
+- `evaluation_results.pkl` - Serialized evaluation metrics
+
+### Distribution CSV Format
+
+The `pointpillars_distributions.csv` file contains best-fit distributions for each error type in 5m distance bins:
+
+```csv
+error_type,dist_min,dist_max,distribution,param1,param2,param3
+distal,0,5,normal,0.0358,0.1646,
+distal,5,10,student_t,3.40,-0.0049,0.0690
+perpendicular,0,5,logistic,0.0469,0.0711,
+...
+miss_detection,0,10,normal,0.500,0.05,
+```
+
+Distribution parameter formats:
+- `normal`: param1=μ (mean), param2=σ (std dev)
+- `laplace`: param1=μ (location), param2=b (scale)
+- `logistic`: param1=μ (location), param2=s (scale)
+- `student_t`: param1=ν (degrees of freedom), param2=μ (location), param3=σ (scale)
+- `cauchy`: param1=x₀ (location), param2=γ (scale)
+
+### Example: Full Pipeline
+
+```bash
+# 1. Pre-process KITTI data (if not done)
+python pre_process_kitti.py --data_root /mnt/data/kitti
+
+# 2. Train PointPillars (or use pretrained)
+python train.py --data_root /mnt/data/kitti --saved_path ./pillar_logs --max_epoch 160
+
+# 3. Train error predictors
+python train_all_models.py --data_root /mnt/data/kitti --ckpt ./pillar_logs/checkpoints/epoch_160.pth --output_dir ./error_predictors
+
+# 4. Evaluate and generate distribution CSV
+python evaluate_error_predictors.py --data_root /mnt/data/kitti --ckpt ./pillar_logs/checkpoints/epoch_160.pth --model_dir ./error_predictors --output_dir ./evaluation_results
+
+# 5. View results
+cat ./evaluation_results/pointpillars_distributions.csv
+cat ./evaluation_results/regression_models.txt
+```
+
 ## Acknowledements
 
 Thanks for the open source code [mmcv](https://github.com/open-mmlab/mmcv), [mmdet](https://github.com/open-mmlab/mmdetection) and [mmdet3d](https://github.com/open-mmlab/mmdetection3d).

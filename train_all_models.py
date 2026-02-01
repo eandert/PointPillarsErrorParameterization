@@ -40,38 +40,35 @@ def prepare_training_data(data_root, ckpt_path, classes, max_samples, iou_thresh
         print(f"Processing {len(sample_indices)} samples out of "
               f"{len(train_dataset)} total")
 
+    from pointpillars.utils import (
+        keep_bbox_from_image_range, keep_bbox_from_lidar_range
+    )
+    pcd_limit_range = np.array(
+        [0, -40, -3, 70.4, 40, 0.0], dtype=np.float32
+    )
+
     with torch.no_grad():
         for i in tqdm(sample_indices):
             data_dict = train_dataset[i]
             
             pts = torch.from_numpy(data_dict['pts']).cuda()
             gt_bboxes_3d = torch.from_numpy(
-                data_dict['gt_bboxes_3d']).cuda()
-            gt_labels = torch.from_numpy(
+                data_dict['gt_bboxes_3d']).cuda()  # Lidar coordinates
+            gt_labels_tensor = torch.from_numpy(
                 data_dict['gt_labels']).cuda()
             
             batch_results = model(
                 batched_pts=[pts],
                 mode='val',
                 batched_gt_bboxes=[gt_bboxes_3d],
-                batched_gt_labels=[gt_labels]
+                batched_gt_labels=[gt_labels_tensor]
             )
-            
-            del pts, gt_bboxes_3d, gt_labels
-            torch.cuda.empty_cache()
 
             calib_info = data_dict['calib_info']
             tr_velo_to_cam = calib_info['Tr_velo_to_cam'].astype(np.float32)
             r0_rect = calib_info['R0_rect'].astype(np.float32)
             P2 = calib_info['P2'].astype(np.float32)
             image_shape = data_dict['image_info']['image_shape']
-            
-            from pointpillars.utils import (
-                keep_bbox_from_image_range, keep_bbox_from_lidar_range
-            )
-            pcd_limit_range = np.array(
-                [0, -40, -3, 70.4, 40, 0.0], dtype=np.float32
-            )
             
             result = batch_results[0]
             result_filter = keep_bbox_from_image_range(
@@ -82,14 +79,15 @@ def prepare_training_data(data_root, ckpt_path, classes, max_samples, iou_thresh
             )
 
             lidar_bboxes = result_filter['lidar_bboxes']
-            labels, scores = result_filter['labels'], result_filter['scores']
+            det_labels, scores = result_filter['labels'], result_filter['scores']
             
+            # Store detections in lidar coordinates
             format_result = {
                 'name': [], 'location': [], 'dimensions': [], 
                 'rotation_y': [], 'score': []
             }
             LABEL2CLASSES = {i: k for i, k in enumerate(classes)}
-            for label, score, lidar_bbox in zip(labels, scores, lidar_bboxes):
+            for lidar_bbox, label, score in zip(lidar_bboxes, det_labels, scores):
                 format_result['name'].append(LABEL2CLASSES[label])
                 format_result['location'].append(lidar_bbox[:3])
                 format_result['dimensions'].append(lidar_bbox[3:6])
@@ -99,19 +97,22 @@ def prepare_training_data(data_root, ckpt_path, classes, max_samples, iou_thresh
             for key in format_result:
                 format_result[key] = np.array(format_result[key])
 
-            gt_annos = train_dataset.data_infos[train_dataset.sorted_ids[i]]['annos']
+            # Use GT boxes from dataloader (lidar coordinates) instead of annos (camera coordinates)
+            gt_boxes_lidar = gt_bboxes_3d.cpu().numpy()  # [x, y, z, w, l, h, yaw] in lidar
+            gt_labels = gt_labels_tensor.cpu().numpy()
+            
+            del pts, gt_bboxes_3d, gt_labels_tensor
+            torch.cuda.empty_cache()
 
             for class_name in classes:
-                gt_mask = gt_annos['name'] == class_name
+                class_idx = classes.index(class_name)
+                gt_mask = gt_labels == class_idx
                 det_mask = format_result['name'] == class_name
                 if not gt_mask.any():
                     continue
 
-                gt_boxes = np.concatenate([
-                    gt_annos['location'][gt_mask],
-                    gt_annos['dimensions'][gt_mask],
-                    gt_annos['rotation_y'][gt_mask][:, None]
-                ], axis=1)
+                # GT boxes in lidar coordinates
+                gt_boxes = gt_boxes_lidar[gt_mask]
 
                 det_boxes = np.empty((0, 7))
                 if np.any(det_mask):
@@ -134,21 +135,33 @@ def prepare_training_data(data_root, ckpt_path, classes, max_samples, iou_thresh
                     if gt_idx in gt_to_det:
                         det_box = det_boxes[gt_to_det[gt_idx]]
                     
-                    distal, perp, height = (np.nan, np.nan, np.nan)
+                    # Initialize all errors as NaN
+                    errors = {
+                        'distal': np.nan, 'perp': np.nan, 'height': np.nan,
+                        'yaw': np.nan, 'width': np.nan, 'length': np.nan, 
+                        'box_height': np.nan
+                    }
                     missed_rate = 1.0
+                    
                     if det_box is not None:
-                        distal, perp, height = error_analyzer.compute_errors(
-                            gt_box, det_box
+                        # Use absolute errors for regression training
+                        errors = error_analyzer.compute_all_errors(
+                            gt_box, det_box, signed=False
                         )
                         missed_rate = 0.0
 
                     features = extract_features_from_detection(
                         gt_box, det_box, distance, class_name, classes
                     )
+                    # Targets: 7 error types (absolute) + missed_rate = 8 values
                     targets = [
-                        distal if not np.isnan(distal) else 0.0,
-                        perp if not np.isnan(perp) else 0.0,
-                        height if not np.isnan(height) else 0.0,
+                        errors['distal'] if not np.isnan(errors['distal']) else 0.0,
+                        errors['perp'] if not np.isnan(errors['perp']) else 0.0,
+                        errors['height'] if not np.isnan(errors['height']) else 0.0,
+                        errors['yaw'] if not np.isnan(errors['yaw']) else 0.0,
+                        errors['width'] if not np.isnan(errors['width']) else 0.0,
+                        errors['length'] if not np.isnan(errors['length']) else 0.0,
+                        errors['box_height'] if not np.isnan(errors['box_height']) else 0.0,
                         missed_rate
                     ]
                     features_list.append(features)
@@ -225,8 +238,11 @@ def train_linear_models(distances, targets, output_dir):
     print("Training linear and quadratic models...")
     X = distances.reshape(-1, 1)
     
+    # Target names: 7 error types + missed_rate
+    target_names = ['distal', 'perp', 'height', 'yaw', 'width', 'length', 'box_height', 'missed_rate']
+    
     linear_models = {}
-    for i, target_name in enumerate(['distal', 'perp', 'height', 'missed_rate']):
+    for i, target_name in enumerate(target_names):
         valid_mask = ~np.isnan(targets[:, i])
         X_valid, y_valid = X[valid_mask], targets[valid_mask, i]
 
@@ -246,6 +262,8 @@ def train_linear_models(distances, targets, output_dir):
         ])
         quadratic_model.fit(X_valid, y_valid)
         linear_models[f'{target_name}_quadratic'] = quadratic_model
+        
+        print(f"  {target_name}: Linear coef={linear_model.coef_[0]:.6f}, intercept={linear_model.intercept_:.6f}")
     
     with open(os.path.join(output_dir, 'linear_models.pkl'), 'wb') as f:
         pickle.dump(linear_models, f)

@@ -51,9 +51,17 @@ def create_data_info_pkl(data_root, data_type, prefix, label=True, db=False):
         img_path = os.path.join(data_root, split, 'image_2', f'{id}.png')
         lidar_path = os.path.join(data_root, split, 'velodyne', f'{id}.bin')
         calib_path = os.path.join(data_root, split, 'calib', f'{id}.txt') 
+        
+        # Skip if required files don't exist
+        if not os.path.exists(img_path) or not os.path.exists(lidar_path) or not os.path.exists(calib_path):
+            continue
+            
         cur_info_dict['velodyne_path'] = sep.join(lidar_path.split(sep)[-3:])
 
         img = cv2.imread(img_path)
+        if img is None:
+            print(f"Warning: Could not read image {img_path}, skipping...")
+            continue
         image_shape = img.shape[:2]
         cur_info_dict['image'] = {
             'image_shape': image_shape,

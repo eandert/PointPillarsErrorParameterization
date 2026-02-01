@@ -1,0 +1,152 @@
+====================================================================================================
+REGRESSION MODEL PARAMETERS
+====================================================================================================
+
+All models predict error as a function of distance (d) in meters.
+
+
+================================================================================
+Radial Error (range, towards/away from sensor)
+================================================================================
+
+  LINEAR MODEL:
+    error = 0.000788 * d + 0.014547
+    Coefficient: 0.000788
+    Intercept: 0.014547
+
+  QUADRATIC MODEL:
+    error = 0.0000125443 * d² + 0.0000002286 * d + 0.0239907689
+    Coefficient (d²): 1.2544308447e-05
+    Coefficient (d): 2.2863332561e-07
+    Intercept: 0.0239907689
+
+
+================================================================================
+Lateral Error (cross-range, left/right in ground plane)
+================================================================================
+
+  LINEAR MODEL:
+    error = 0.000279 * d + 0.023388
+    Coefficient: 0.000279
+    Intercept: 0.023388
+
+  QUADRATIC MODEL:
+    error = 0.0000036658 * d² + 0.0000000668 * d + 0.0271608047
+    Coefficient (d²): 3.6658409499e-06
+    Coefficient (d): 6.6813754529e-08
+    Intercept: 0.0271608047
+
+
+================================================================================
+Vertical Error (elevation, up/down)
+================================================================================
+
+  LINEAR MODEL:
+    error = 0.000563 * d + 0.013141
+    Coefficient: 0.000563
+    Intercept: 0.013141
+
+  QUADRATIC MODEL:
+    error = 0.0000089150 * d² + 0.0000001625 * d + 0.0199061390
+    Coefficient (d²): 8.9150225904e-06
+    Coefficient (d): 1.6248577595e-07
+    Intercept: 0.0199061390
+
+
+================================================================================
+Yaw Error (heading angle, radians)
+================================================================================
+
+  LINEAR MODEL:
+    error = -0.000485 * d + 0.045834
+    Coefficient: -0.000485
+    Intercept: 0.045834
+
+  QUADRATIC MODEL:
+    error = -0.0000100111 * d² + -0.0000001825 * d + 0.0413272455
+    Coefficient (d²): -1.0011149243e-05
+    Coefficient (d): -1.8246373656e-07
+    Intercept: 0.0413272455
+
+
+================================================================================
+Width Error (box dimension)
+================================================================================
+
+  LINEAR MODEL:
+    error = 0.000228 * d + 0.016275
+    Coefficient: 0.000228
+    Intercept: 0.016275
+
+  QUADRATIC MODEL:
+    error = 0.0000035518 * d² + 0.0000000647 * d + 0.0190586075
+    Coefficient (d²): 3.5517969081e-06
+    Coefficient (d): 6.4735331762e-08
+    Intercept: 0.0190586075
+
+
+================================================================================
+Length Error (box dimension)
+================================================================================
+
+  LINEAR MODEL:
+    error = 0.000969 * d + 0.034834
+    Coefficient: 0.000969
+    Intercept: 0.034834
+
+  QUADRATIC MODEL:
+    error = 0.0000147333 * d² + 0.0000002685 * d + 0.0468417332
+    Coefficient (d²): 1.4733323042e-05
+    Coefficient (d): 2.6853012969e-07
+    Intercept: 0.0468417332
+
+
+================================================================================
+Box Height Error (box dimension)
+================================================================================
+
+  LINEAR MODEL:
+    error = 0.000211 * d + 0.022837
+    Coefficient: 0.000211
+    Intercept: 0.022837
+
+  QUADRATIC MODEL:
+    error = 0.0000025416 * d² + 0.0000000463 * d + 0.0258245431
+    Coefficient (d²): 2.5416347853e-06
+    Coefficient (d): 4.6323975766e-08
+    Intercept: 0.0258245431
+
+
+================================================================================
+Missed Detection Rate
+================================================================================
+
+  LINEAR MODEL:
+    error = -0.002430 * d + 0.512053
+    Coefficient: -0.002430
+    Intercept: 0.512053
+
+  QUADRATIC MODEL:
+    error = -0.0000047916 * d² + -0.0000000873 * d + 0.4637548029
+    Coefficient (d²): -4.7915914365e-06
+    Coefficient (d): -8.7331955001e-08
+    Intercept: 0.4637548029
+
+
+====================================================================================================
+USAGE NOTES:
+====================================================================================================
+
+To predict error for a given distance d:
+  Linear:    error(d) = coef * d + intercept
+  Quadratic: error(d) = coef_d2 * d^2 + coef_d * d + intercept
+
+Units:
+  - Distance (d): meters
+  - Position errors (distal, perp, height): meters
+  - Yaw error: radians
+  - Dimension errors (width, length, box_height): meters
+  - Missed rate: probability (0-1)
+
+These are ABSOLUTE error magnitude predictions (always positive).
+For signed error distributions (bias analysis), use distribution_summary.txt.

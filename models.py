@@ -18,8 +18,19 @@ class ErrorDataset(Dataset):
 
 
 class ErrorPredictor(nn.Module):
-    """Neural network to predict error terms."""
-    def __init__(self, input_dim, hidden_dims, output_dim=4):
+    """Neural network to predict error terms.
+    
+    Output dimensions (8 total):
+        0: distal error (radial position)
+        1: perpendicular error (lateral position)
+        2: height error (z position)
+        3: yaw error (orientation)
+        4: width error (box dimension)
+        5: length error (box dimension)
+        6: box_height error (box dimension)
+        7: missed_rate (detection miss probability)
+    """
+    def __init__(self, input_dim, hidden_dims, output_dim=8):
         super(ErrorPredictor, self).__init__()
         
         layers = []
